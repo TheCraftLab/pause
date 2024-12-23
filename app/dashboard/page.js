@@ -5,18 +5,19 @@ import { Grid, Typography, Button } from '@mui/material';
 
 export default function Dashboard() {
     const [slots, setSlots] = useState([]);
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         const fetchSlots = async () => {
             try {
                 const response = await fetch('/api/getSlots');
+
                 if (!response.ok) {
                     throw new Error('Erreur lors de la récupération des créneaux');
                 }
 
                 const data = await response.json();
-                console.log('Données des créneaux:', data); // Vérifiez ici les données des créneaux
-                setSlots(data.slots);
+                setSlots(data.slots);  // Mettre à jour l'état avec les créneaux
             } catch (error) {
                 console.error('Erreur:', error);
             }
@@ -25,20 +26,20 @@ export default function Dashboard() {
         fetchSlots();
     }, []);
 
+// Fonction pour formater correctement l'heure
     const formatTime = (timestamp) => {
-        console.log('Timestamp:', timestamp);
-        console.log('Type du timestamp:', typeof timestamp);
+        console.log('Timestamp:', timestamp); // Ajoutez ceci pour vérifier ce que contient `timestamp`
 
         let date;
 
         if (timestamp instanceof Date) {
             // Si c'est déjà un objet Date, l'utiliser directement
             date = timestamp;
-        } else if (timestamp && timestamp.toDate) {
+        } else if (timestamp?.toDate) {
             // Si c'est un Timestamp Firestore, convertir en Date
             date = timestamp.toDate();
         } else if (typeof timestamp === 'string') {
-            // Si c'est une chaîne, tenter de la convertir en Date
+            // Si c'est une chaîne, convertir en objet Date
             date = new Date(timestamp);
         } else {
             // Si ce n'est aucun des formats attendus, loggez une erreur
@@ -51,6 +52,69 @@ export default function Dashboard() {
     };
 
 
+
+    // Fonction pour gérer la réservation
+    const handleReservation = async (slotId, index, agentName) => {
+        setLoading(true);
+        try {
+            const response = await fetch('/api/reserveSlot', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ slotId, agentName }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Erreur lors de la réservation');
+            }
+
+            // Mettre à jour les créneaux après la réservation
+            const updatedSlots = [...slots];
+            updatedSlots.forEach((slot) => {
+                if (slot.id === slotId) {
+                    slot.reserved[index] = agentName; // Réserver le créneau
+                }
+            });
+            setSlots(updatedSlots);
+        } catch (error) {
+            console.error('Erreur de réservation:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Fonction pour gérer l'annulation de la réservation
+    const handleCancel = async (slotId, index) => {
+        setLoading(true);
+        try {
+            const response = await fetch('/api/cancelReservation', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ slotId, index }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Erreur lors de l\'annulation');
+            }
+
+            // Mettre à jour les créneaux après l'annulation
+            const updatedSlots = [...slots];
+            updatedSlots.forEach((slot) => {
+                if (slot.id === slotId) {
+                    slot.reserved[index] = null; // Annuler la réservation
+                }
+            });
+            setSlots(updatedSlots);
+        } catch (error) {
+            console.error('Erreur d\'annulation:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div>
             <Typography variant="h4" gutterBottom>
@@ -58,22 +122,28 @@ export default function Dashboard() {
             </Typography>
             <Grid container spacing={2}>
                 {slots
-                    .sort((a, b) => a.time - b.time) // Trier les créneaux par ordre croissant
+                    .sort((a, b) => new Date(a.time) - new Date(b.time)) // Trier les créneaux par heure croissante
                     .map((slot) => (
                         <Grid item xs={12} sm={4} key={slot.id}>
                             <Typography variant="h6">
                                 {formatTime(slot.time)} {/* Afficher l'heure du créneau */}
                             </Typography>
                             <div>
-                                {/* Pour chaque créneau, on a 3 boutons pour les 3 agents */}
                                 {Array.from({ length: 3 }).map((_, index) => (
                                     <Button
                                         key={index}
                                         variant={slot.reserved[index] ? 'contained' : 'outlined'}
                                         color={slot.reserved[index] ? 'error' : 'success'}
-                                        disabled={slot.reserved[index]}  // Désactiver le bouton si réservé
+                                        disabled={loading} // Désactiver si en chargement
+                                        onClick={() => {
+                                            if (!slot.reserved[index] && !loading) {
+                                                handleReservation(slot.id, index, `agent${index + 1}`);
+                                            } else if (slot.reserved[index] && !loading) {
+                                                handleCancel(slot.id, index); // Annuler si réservé
+                                            }
+                                        }}
                                     >
-                                        {slot.reserved[index] ? slot.reserved[index] : 'Disponible'}
+                                        {slot.reserved[index] ? `Réservé par ${slot.reserved[index]}` : 'Disponible'}
                                     </Button>
                                 ))}
                             </div>
